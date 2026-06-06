@@ -1,0 +1,65 @@
+name: Build Kernel with SukiSU Ultra
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout kernel source
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup build environment
+      run: |
+        sudo apt update
+        sudo apt install -y git make bc bison flex libssl-dev libelf-dev \
+          build-essential lzop cpio device-tree-compiler python3 \
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+
+    - name: Install Clang
+      run: |
+        wget -O clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/r450784e.tar.gz
+        mkdir clang
+        tar -xzf clang.tar.gz -C clang
+        echo "$(pwd)/clang/bin" >> $GITHUB_PATH
+
+    - name: Integrate SukiSU Ultra
+      run: |
+        curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
+      working-directory: ./
+
+    - name: Configure kernel
+      run: |
+        export ARCH=arm64
+        export CROSS_COMPILE="aarch64-linux-gnu-"
+        export CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+        make vayu_defconfig
+        scripts/config --enable CONFIG_KSU_MANUAL_HOOK
+        scripts/config --enable CONFIG_KPM
+        # Disable broken HID trace if needed
+        scripts/config --disable CONFIG_HID_TRACE
+        scripts/config --disable CONFIG_HID_DEBUG
+
+    - name: Build kernel
+      run: |
+        export ARCH=arm64
+        export CROSS_COMPILE="aarch64-linux-gnu-"
+        export CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+        make -j$(nproc) CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy \
+          CROSS_COMPILE="aarch64-linux-gnu-" CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+
+    - name: Prepare AnyKernel3
+      run: |
+        git clone https://github.com/osm0sis/AnyKernel3 -b master
+        cp arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        cd AnyKernel3
+        zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M).zip" * -x ".git*"
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: SukiSU_Kernel_vayu
+        path: AnyKernel3/*.zip
