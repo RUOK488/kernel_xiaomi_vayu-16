@@ -22,26 +22,11 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone kernel source
+    - name: Clone tejas101k kernel (confirmed vayu_defconfig)
       run: |
-        git clone https://github.com/lybdroid/kernel_xiaomi_vayu -b eleven --depth=1 kernel
+        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
         cd kernel
-
-    - name: Find defconfig
-      id: defconfig
-      run: |
-        cd kernel
-        # Search for any defconfig with 'vayu' in name
-        CONFIG_FILE=$(find arch/arm64/configs -name "*vayu*" -type f | head -1)
-        if [ -n "$CONFIG_FILE" ]; then
-          CONFIG_NAME=$(basename "$CONFIG_FILE" .config)
-          echo "FOUND: $CONFIG_NAME"
-          echo "NAME=$CONFIG_NAME" >> $GITHUB_OUTPUT
-        else
-          # Fallback to generic defconfig
-          echo "No vayu config found, using defconfig"
-          echo "NAME=defconfig" >> $GITHUB_OUTPUT
-        fi
+        test -f arch/arm64/configs/vayu_defconfig || (echo "vayu_defconfig missing" && exit 1)
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -52,7 +37,7 @@ jobs:
     - name: Configure kernel
       run: |
         cd kernel
-        make ${{ steps.defconfig.outputs.NAME }}
+        make vayu_defconfig
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --disable CONFIG_DEBUG_INFO
         scripts/config --disable CONFIG_HID_TRACE
@@ -66,27 +51,22 @@ jobs:
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
-          OBJCOPY=llvm-objcopy-14 \
-          OBJDUMP=llvm-objdump-14
+          OBJCOPY=llvm-objcopy-14
 
-    - name: Locate kernel image
-      id: image
+    - name: Locate and copy kernel image
       run: |
         cd kernel
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-          echo "PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-        elif [ -f arch/arm64/boot/Image ]; then
-          echo "PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+          cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
         else
           echo "ERROR: No kernel image found"
-          find arch/arm64/boot -name "Image*" 2>/dev/null
           exit 1
         fi
 
-    - name: Package kernel
+    - name: Package with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/${{ steps.image.outputs.PATH }} AnyKernel3/Image.gz-dtb
+        cp Image.gz-dtb AnyKernel3/
         cd AnyKernel3
         zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
 
