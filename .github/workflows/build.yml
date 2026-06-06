@@ -1,47 +1,64 @@
-name: Build Stock Kernel + SukiSU Ultra (POCO X3 Pro)
+name: Build POCO X3 Pro Kernel with SukiSU Ultra
 
 on:
   workflow_dispatch:
+    inputs:
+      kernel-source:
+        description: 'Kernel source repository'
+        required: true
+        default: 'https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu'
+      kernel-branch:
+        description: 'Git branch to build'
+        required: true
+        default: 'base'
+      defconfig:
+        description: 'Kernel defconfig name'
+        required: true
+        default: 'vayu_defconfig'
 
 env:
   ARCH: arm64
+  SUBARCH: arm64
   CROSS_COMPILE: aarch64-linux-gnu-
-  CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
+  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
 
 jobs:
   build:
     runs-on: ubuntu-22.04
+    container: debian:bookworm
     timeout-minutes: 120
 
     steps:
     - name: Install dependencies
       run: |
-        sudo apt update
-        sudo apt install -y \
-          git make bc bison flex libssl-dev libelf-dev \
+        apt update
+        apt install -y git make bc bison flex libssl-dev libelf-dev \
           build-essential lzop cpio device-tree-compiler python3 \
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-          clang-14 lld-14 llvm-14
-
-    - name: Clone kernel source (LineageOS – stock-based, verified vayu_defconfig)
+          clang-14 lld-14 llvm-14 wget xz-utils
+    - name: Clone kernel source
       run: |
-        git clone https://github.com/LineageOS/android_kernel_xiaomi_vayu -b lineage-21 --depth=1 kernel
+        git clone --depth 1 ${{ github.event.inputs.kernel-source }} -b ${{ github.event.inputs.kernel-branch }} kernel
         cd kernel
-        test -f arch/arm64/configs/vayu_defconfig && echo "✓ vayu_defconfig found" || (echo "✗ Missing vayu_defconfig" && exit 1)
-
+        if [ ! -f "arch/arm64/configs/${{ github.event.inputs.defconfig }}" ]; then
+          echo "Error: defconfig not found!"
+          find arch/arm64/configs -name "*.config"
+          exit 1
+        fi
     - name: Integrate SukiSU Ultra
       run: |
         cd kernel
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
         rm -rf KernelSU/.git
-
     - name: Configure kernel
       run: |
         cd kernel
-        make vayu_defconfig
+        make ${{ github.event.inputs.defconfig }}
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
+        scripts/config --disable CONFIG_HID_TRACE
+        scripts/config --disable CONFIG_HID_DEBUG
         scripts/config --disable CONFIG_DEBUG_INFO
-
+        scripts/config --disable CONFIG_DEBUG_KERNEL
     - name: Build kernel
       run: |
         cd kernel
@@ -50,24 +67,27 @@ jobs:
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
-          OBJCOPY=llvm-objcopy-14 \
-          OBJDUMP=llvm-objdump-14
-
-    - name: Verify kernel image
+          OBJCOPY=llvm-objcopy-14
+    - name: Locate kernel image
+      id: find
       run: |
         cd kernel
-        test -f arch/arm64/boot/Image.gz-dtb || (echo "No Image.gz-dtb" && exit 1)
-
-    - name: Package with AnyKernel3
+        if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
+          echo "IMAGE_PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
+        elif [ -f "arch/arm64/boot/Image" ]; then
+          echo "IMAGE_PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+        else
+          find arch/arm64/boot -name "Image*"
+          exit 1
+        fi
+    - name: Package kernel
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        cp kernel/${{ steps.find.outputs.IMAGE_PATH }} AnyKernel3/Image.gz-dtb
         cd AnyKernel3
-        zip -r9 "SukiSU_Stock_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
-
+        zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Stock_vayu
+        name: SukiSU_Kernel_vayu
         path: AnyKernel3/*.zip
-        retention-days: 7
