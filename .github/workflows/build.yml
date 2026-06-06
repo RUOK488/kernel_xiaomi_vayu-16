@@ -23,11 +23,17 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone tejas101k kernel (confirmed working)
+    - name: Clone Helios kernel (has vayu_defconfig)
       run: |
-        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
+        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b helios --depth=1 kernel
         cd kernel
-        ls arch/arm64/configs/vayu_defconfig && echo "✓ vayu_defconfig found" || echo "✗ vayu_defconfig missing"
+        if [ -f "arch/arm64/configs/vayu_defconfig" ]; then
+          echo "✓ vayu_defconfig found"
+        else
+          echo "✗ vayu_defconfig not found - available configs:"
+          find arch/arm64/configs -name "*.config" | head -10
+          exit 1
+        fi
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -59,6 +65,9 @@ jobs:
       id: find_image
       run: |
         cd kernel
+        echo "Searching for kernel image..."
+        find arch/arm64/boot -type f -name "Image*" 2>/dev/null | cat
+        
         if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
           echo "✓ Image.gz-dtb found"
@@ -67,7 +76,6 @@ jobs:
           echo "✓ Image found"
         else
           echo "✗ No kernel image found"
-          find arch/arm64/boot -type f 2>/dev/null
           exit 1
         fi
 
@@ -76,13 +84,13 @@ jobs:
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
         cp kernel/${{ steps.find_image.outputs.IMAGE_PATH }} AnyKernel3/Image.gz-dtb
         cd AnyKernel3
-        ZIP_NAME="SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip"
+        ZIP_NAME="SukiSU_Helios_vayu_$(date +%Y%m%d_%H%M%S).zip"
         zip -r9 "$ZIP_NAME" . -x ".git*" "*.zip"
         echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
     - name: Upload kernel
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Kernel_POCO_X3_Pro
+        name: SukiSU_Helios_Kernel_POCO_X3_Pro
         path: AnyKernel3/*.zip
         retention-days: 7
