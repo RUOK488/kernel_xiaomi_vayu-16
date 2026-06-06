@@ -7,13 +7,12 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: Checkout (placeholder)
-      run: echo "Starting build..."
-
     - name: Clone working kernel source
       run: |
-        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
+        git clone https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu -b caf --depth=1 kernel
         cd kernel
+        # Check if vayu_defconfig exists in the expected path
+        ls -la arch/arm64/configs/ | grep "vayu"
 
     - name: Setup build environment
       run: |
@@ -27,7 +26,7 @@ jobs:
         cd kernel
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
 
-    - name: Configure kernel (vayu_defconfig exists here)
+    - name: Configure kernel
       run: |
         cd kernel
         export ARCH=arm64
