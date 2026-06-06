@@ -36,8 +36,7 @@ jobs:
     - name: Configure kernel
       run: |
         cd kernel
-        # USE THE EXACT DEFCONFIG NAME YOU FOUND FROM DEBUG
-        make CORRECT_DEFCONFIG
+        make REPLACE_WITH_REAL_DEFCONFIG
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --disable CONFIG_DEBUG_INFO
 
