@@ -1,4 +1,4 @@
-name: Build Stock Kernel with SukiSU Ultra
+name: Build LineageOS Kernel with SukiSU Ultra
 
 on:
   workflow_dispatch:
@@ -11,106 +11,42 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    timeout-minutes: 120
-
     steps:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y \
-          git make bc bison flex libssl-dev libelf-dev \
+        sudo apt install -y git make bc bison flex libssl-dev libelf-dev \
           build-essential lzop cpio device-tree-compiler python3 \
-          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-          clang-14 lld-14 llvm-14
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang-14 lld-14
 
-    - name: Clone Xiaomi stock kernel for POCO X3 Pro (vayu)
+    - name: Clone LineageOS kernel for vayu
       run: |
-        git clone https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b vayu-q-oss --depth=1 kernel
+        git clone https://github.com/LineageOS/android_kernel_xiaomi_vayu -b lineage-21 --depth=1 kernel
         cd kernel
-        echo "✓ Stock kernel cloned"
-        echo "Available defconfigs:"
-        find arch/arm64/configs -name "*.config" 2>/dev/null | head -10
+        ls arch/arm64/configs/vayu* || find arch/arm64/configs -name "*vayu*"
 
-    - name: Find correct defconfig
-      id: defconfig
-      run: |
-        cd kernel
-        if [ -f "arch/arm64/configs/vayu_defconfig" ]; then
-          echo "NAME=vayu_defconfig" >> $GITHUB_OUTPUT
-        elif [ -f "arch/arm64/configs/vendor/vayu_defconfig" ]; then
-          echo "NAME=vendor/vayu_defconfig" >> $GITHUB_OUTPUT
-        else
-          # Find any config with vayu in name
-          CONFIG=$(find arch/arm64/configs -name "*vayu*" -type f | head -1 | xargs basename | sed 's/.config//')
-          if [ -n "$CONFIG" ]; then
-            echo "NAME=$CONFIG" >> $GITHUB_OUTPUT
-          else
-            echo "NAME=defconfig" >> $GITHUB_OUTPUT
-          fi
-        fi
-        echo "Using defconfig: ${{ steps.defconfig.outputs.NAME }}"
-
-    - name: Integrate SukiSU Ultra only (no SUSFS)
+    - name: Integrate SukiSU Ultra
       run: |
         cd kernel
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
         rm -rf KernelSU/.git
-        echo "✓ SukiSU Ultra integrated"
 
-    - name: Configure kernel
+    - name: Configure and build
       run: |
         cd kernel
-        make ${{ steps.defconfig.outputs.NAME }}
+        make vayu_defconfig
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
-        scripts/config --disable CONFIG_DEBUG_INFO
-        echo "✓ Kernel configured"
+        make -j$(nproc) CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14
 
-    - name: Build kernel
-      run: |
-        cd kernel
-        make -j$(nproc) \
-          CC=clang-14 \
-          LD=ld.lld-14 \
-          AR=llvm-ar-14 \
-          NM=llvm-nm-14 \
-          OBJCOPY=llvm-objcopy-14
-        echo "✓ Build completed"
-
-    - name: Find kernel image
-      id: image
-      run: |
-        cd kernel
-        if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
-          echo "PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-          echo "✓ Found Image.gz-dtb"
-        elif [ -f "arch/arm64/boot/Image" ]; then
-          echo "PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
-          echo "✓ Found Image"
-        else
-          echo "Searching for any kernel image..."
-          find arch/arm64/boot -name "Image*" -type f 2>/dev/null | cat
-          exit 1
-        fi
-
-    - name: Package with AnyKernel3
+    - name: Package kernel
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/${{ steps.image.outputs.PATH }} AnyKernel3/Image.gz-dtb
+        cp kernel/arch/arm64/boot/Image.gz-dtb AnyKernel3/
         cd AnyKernel3
-        ZIP_NAME="Stock_SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip"
-        zip -r9 "$ZIP_NAME" . -x ".git*" "*.zip"
-        echo "✓ Package created: $ZIP_NAME"
+        zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
 
-    - name: Upload kernel zip
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: Stock_SukiSU_Kernel_vayu
+        name: SukiSU_Kernel_vayu
         path: AnyKernel3/*.zip
-        retention-days: 7
-
-    - name: Upload raw kernel image (fallback)
-      uses: actions/upload-artifact@v4
-      with:
-        name: Raw_Kernel_Image
-        path: kernel/${{ steps.image.outputs.PATH }}
-        retention-days: 7
