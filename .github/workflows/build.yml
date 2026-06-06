@@ -23,16 +23,15 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone Helios kernel (has vayu_defconfig)
+    - name: Clone Anymore kernel (confirmed working for vayu)
       run: |
-        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b helios --depth=1 kernel
+        git clone https://gitlab.com/AnymoreDevelopment/android_kernel_xiaomi_vayu -b fourteen --depth=1 kernel
         cd kernel
         if [ -f "arch/arm64/configs/vayu_defconfig" ]; then
           echo "✓ vayu_defconfig found"
         else
-          echo "✗ vayu_defconfig not found - available configs:"
-          find arch/arm64/configs -name "*.config" | head -10
-          exit 1
+          echo "Searching for defconfig..."
+          find arch/arm64/configs -name "*vayu*" 2>/dev/null
         fi
 
     - name: Integrate SukiSU Ultra
@@ -44,7 +43,14 @@ jobs:
     - name: Configure kernel
       run: |
         cd kernel
-        make vayu_defconfig
+        # Try different defconfig names
+        if [ -f "arch/arm64/configs/vayu_defconfig" ]; then
+          make vayu_defconfig
+        elif [ -f "arch/arm64/configs/vendor/vayu_defconfig" ]; then
+          make vendor/vayu_defconfig
+        else
+          make defconfig
+        fi
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --enable CONFIG_KPM
         scripts/config --disable CONFIG_HID_TRACE
@@ -70,12 +76,10 @@ jobs:
         
         if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-          echo "✓ Image.gz-dtb found"
         elif [ -f "arch/arm64/boot/Image" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
-          echo "✓ Image found"
         else
-          echo "✗ No kernel image found"
+          echo "No kernel image found"
           exit 1
         fi
 
@@ -84,13 +88,12 @@ jobs:
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
         cp kernel/${{ steps.find_image.outputs.IMAGE_PATH }} AnyKernel3/Image.gz-dtb
         cd AnyKernel3
-        ZIP_NAME="SukiSU_Helios_vayu_$(date +%Y%m%d_%H%M%S).zip"
+        ZIP_NAME="SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip"
         zip -r9 "$ZIP_NAME" . -x ".git*" "*.zip"
-        echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
     - name: Upload kernel
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Helios_Kernel_POCO_X3_Pro
+        name: SukiSU_Kernel_POCO_X3_Pro
         path: AnyKernel3/*.zip
         retention-days: 7
