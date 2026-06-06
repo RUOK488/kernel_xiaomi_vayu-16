@@ -22,9 +22,9 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone kernel source (Jebaitedneko - has vayu_defconfig)
+    - name: Clone LineageOS kernel (branch lineage-20)
       run: |
-        git clone https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu -b caf --depth=1 kernel
+        git clone https://github.com/LineageOS/android_kernel_xiaomi_vayu -b lineage-20 --depth=1 kernel
         cd kernel
         if [ ! -f arch/arm64/configs/vayu_defconfig ]; then
           echo "ERROR: vayu_defconfig not found"
@@ -56,24 +56,31 @@ jobs:
           NM=llvm-nm-14 \
           OBJCOPY=llvm-objcopy-14
 
-    - name: Locate kernel image
-      id: image
+    - name: List boot directory (debug)
+      run: |
+        cd kernel
+        echo "Contents of arch/arm64/boot:"
+        ls -la arch/arm64/boot/ || echo "Directory not found"
+
+    - name: Copy kernel image
       run: |
         cd kernel
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-          echo "PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
+          cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
+        elif [ -f arch/arm64/boot/Image.gz ]; then
+          cp arch/arm64/boot/Image.gz ../Image.gz-dtb
         elif [ -f arch/arm64/boot/Image ]; then
-          echo "PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+          cp arch/arm64/boot/Image ../Image.gz-dtb
         else
-          echo "No kernel image found"
-          find arch/arm64/boot -name "Image*" || ls arch/arm64/boot/
+          echo "No kernel image found. Available files:"
+          find arch/arm64/boot -type f 2>/dev/null || true
           exit 1
         fi
 
     - name: Package with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/${{ steps.image.outputs.PATH }} AnyKernel3/Image.gz-dtb
+        cp Image.gz-dtb AnyKernel3/
         cd AnyKernel3
         zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
 
