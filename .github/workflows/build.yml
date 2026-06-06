@@ -23,29 +23,42 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone kernel source (tejas101k - confirmed working)
+    - name: Clone kernel source (lybdroid - confirmed working)
       run: |
-        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
+        git clone https://github.com/lybdroid/kernel_xiaomi_vayu -b twelve --depth=1 kernel
         cd kernel
-        git log -1 --oneline
+        echo "Checking for defconfig..."
+        ls arch/arm64/configs/ | grep -i vayu || echo "No vayu defconfig found"
+
+    - name: If no vayu_defconfig, find alternative
+      id: find_config
+      run: |
+        cd kernel
+        CONFIG_FILE=$(find arch/arm64/configs -name "*vayu*" -type f | head -1)
+        if [ -n "$CONFIG_FILE" ]; then
+          CONFIG_NAME=$(basename "$CONFIG_FILE" .config)
+          echo "CONFIG_NAME=$CONFIG_NAME" >> $GITHUB_OUTPUT
+          echo "Found config: $CONFIG_NAME"
+        else
+          echo "CONFIG_NAME=defconfig" >> $GITHUB_OUTPUT
+          echo "No vayu config found, using defconfig"
+        fi
 
     - name: Integrate SukiSU Ultra
       run: |
         cd kernel
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-        # Remove nested git to avoid submodule issues
         rm -rf KernelSU/.git
 
     - name: Configure kernel
       run: |
         cd kernel
-        make vayu_defconfig
+        make ${{ steps.find_config.outputs.CONFIG_NAME }}
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --enable CONFIG_KPM
         scripts/config --disable CONFIG_HID_TRACE
         scripts/config --disable CONFIG_HID_DEBUG
         scripts/config --disable CONFIG_DEBUG_INFO
-        scripts/config --disable CONFIG_DEBUG_KERNEL
 
     - name: Build kernel
       run: |
@@ -55,51 +68,38 @@ jobs:
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
-          OBJCOPY=llvm-objcopy-14 \
-          OBJDUMP=llvm-objdump-14 \
-          STRIP=llvm-strip-14
+          OBJCOPY=llvm-objcopy-14
 
-    - name: Find any kernel image
-      id: find
+    - name: Find kernel image
+      id: find_image
       run: |
         cd kernel
-        echo "Listing all possible kernel images:"
-        find arch/arm64/boot -type f -name "Image*" -o -name "*.dtb" 2>/dev/null | cat
+        echo "Searching for kernel image..."
+        find arch/arm64/boot -type f -name "Image*" 2>/dev/null | cat
         
         if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-          echo "IMAGE_NAME=Image.gz-dtb" >> $GITHUB_OUTPUT
         elif [ -f "arch/arm64/boot/Image.gz" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
-          echo "IMAGE_NAME=Image.gz" >> $GITHUB_OUTPUT
         elif [ -f "arch/arm64/boot/Image" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
-          echo "IMAGE_NAME=Image" >> $GITHUB_OUTPUT
         else
-          echo "No kernel image found. Build failed."
+          echo "No kernel image found"
           exit 1
         fi
 
     - name: Package with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/${{ steps.find.outputs.IMAGE_PATH }} AnyKernel3/Image.gz-dtb
+        cp kernel/${{ steps.find_image.outputs.IMAGE_PATH }} AnyKernel3/Image.gz-dtb
         cd AnyKernel3
         ZIP_NAME="SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip"
         zip -r9 "$ZIP_NAME" . -x ".git*" "*.zip"
-        echo "Created: $ZIP_NAME"
-        echo "ZIP_PATH=AnyKernel3/$ZIP_NAME" >> $GITHUB_OUTPUT
+        echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
-    - name: Upload final kernel
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Kernel_POCO_X3_Pro_$(date +%Y%m%d)
+        name: SukiSU_Kernel_vayu
         path: AnyKernel3/*.zip
-        retention-days: 7
-
-    - name: Upload raw boot image
-      uses: actions/upload-artifact@v4
-      with:
-        name: Raw_Boot_Image
-        path: kernel/${{ steps.find.outputs.IMAGE_PATH }}
         retention-days: 7
