@@ -2,11 +2,6 @@ name: Build SukiSU Kernel for POCO X3 Pro
 
 on:
   workflow_dispatch:
-    inputs:
-      clean_build:
-        description: 'Clean build cache'
-        required: false
-        default: 'false'
 
 env:
   ARCH: arm64
@@ -19,10 +14,6 @@ jobs:
     timeout-minutes: 120
 
     steps:
-    - name: Clean workspace if requested
-      if: github.event.inputs.clean_build == 'true'
-      run: sudo rm -rf ${{ github.workspace }}/*
-
     - name: Install build dependencies
       run: |
         sudo apt update
@@ -32,17 +23,18 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone kernel source
+    - name: Clone kernel source (tejas101k - confirmed working)
       run: |
-        git clone https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu -b caf --depth=1 kernel
+        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
         cd kernel
-        echo "Kernel source cloned successfully"
+        git log -1 --oneline
 
     - name: Integrate SukiSU Ultra
       run: |
         cd kernel
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
-        echo "SukiSU integrated"
+        # Remove nested git to avoid submodule issues
+        rm -rf KernelSU/.git
 
     - name: Configure kernel
       run: |
@@ -54,7 +46,6 @@ jobs:
         scripts/config --disable CONFIG_HID_DEBUG
         scripts/config --disable CONFIG_DEBUG_INFO
         scripts/config --disable CONFIG_DEBUG_KERNEL
-        echo "Kernel configured"
 
     - name: Build kernel
       run: |
@@ -67,62 +58,48 @@ jobs:
           OBJCOPY=llvm-objcopy-14 \
           OBJDUMP=llvm-objdump-14 \
           STRIP=llvm-strip-14
-        echo "Build completed"
 
-    - name: Locate kernel image
-      id: locate
+    - name: Find any kernel image
+      id: find
       run: |
         cd kernel
-        echo "Searching for kernel image..."
+        echo "Listing all possible kernel images:"
+        find arch/arm64/boot -type f -name "Image*" -o -name "*.dtb" 2>/dev/null | cat
         
         if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
-          echo "image=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-          echo "found=true" >> $GITHUB_OUTPUT
-          echo "Image found: Image.gz-dtb"
-        elif [ -f "arch/arm64/boot/Image" ]; then
-          echo "image=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
-          echo "found=true" >> $GITHUB_OUTPUT
-          echo "Image found: Image"
+          echo "IMAGE_PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
+          echo "IMAGE_NAME=Image.gz-dtb" >> $GITHUB_OUTPUT
         elif [ -f "arch/arm64/boot/Image.gz" ]; then
-          echo "image=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
-          echo "found=true" >> $GITHUB_OUTPUT
-          echo "Image found: Image.gz"
+          echo "IMAGE_PATH=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
+          echo "IMAGE_NAME=Image.gz" >> $GITHUB_OUTPUT
+        elif [ -f "arch/arm64/boot/Image" ]; then
+          echo "IMAGE_PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+          echo "IMAGE_NAME=Image" >> $GITHUB_OUTPUT
         else
-          echo "found=false" >> $GITHUB_OUTPUT
-          echo "No kernel image found!"
-          find arch/arm64/boot -name "Image*" -o -name "*.dtb" 2>/dev/null || true
+          echo "No kernel image found. Build failed."
           exit 1
         fi
 
     - name: Package with AnyKernel3
-      if: steps.locate.outputs.found == 'true'
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/${{ steps.locate.outputs.image }} AnyKernel3/Image.gz-dtb
+        cp kernel/${{ steps.find.outputs.IMAGE_PATH }} AnyKernel3/Image.gz-dtb
         cd AnyKernel3
-        KERNEL_NAME="SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip"
-        zip -r9 "$KERNEL_NAME" . -x ".git*" "*.zip"
-        echo "ZIP_NAME=$KERNEL_NAME" >> $GITHUB_ENV
-        echo "Package created: $KERNEL_NAME"
+        ZIP_NAME="SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip"
+        zip -r9 "$ZIP_NAME" . -x ".git*" "*.zip"
+        echo "Created: $ZIP_NAME"
+        echo "ZIP_PATH=AnyKernel3/$ZIP_NAME" >> $GITHUB_OUTPUT
 
-    - name: Upload kernel zip
-      if: steps.locate.outputs.found == 'true'
+    - name: Upload final kernel
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Kernel_POCO_X3_Pro
+        name: SukiSU_Kernel_POCO_X3_Pro_$(date +%Y%m%d)
         path: AnyKernel3/*.zip
         retention-days: 7
 
-    - name: Upload boot image (fallback)
-      if: steps.locate.outputs.found == 'true'
+    - name: Upload raw boot image
       uses: actions/upload-artifact@v4
       with:
-        name: Boot_Image_Raw
-        path: kernel/${{ steps.locate.outputs.image }}
+        name: Raw_Boot_Image
+        path: kernel/${{ steps.find.outputs.IMAGE_PATH }}
         retention-days: 7
-
-    - name: Build failed notification
-      if: failure()
-      run: |
-        echo "::error::Build failed. Check logs above."
-        exit 1
