@@ -1,4 +1,4 @@
-name: Build SukiSU Kernel for POCO X3 Pro (Final)
+name: Build Stock Kernel + SukiSU Ultra (POCO X3 Pro)
 
 on:
   workflow_dispatch:
@@ -6,28 +6,24 @@ on:
 env:
   ARCH: arm64
   CROSS_COMPILE: aarch64-linux-gnu-
-  CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
-
     steps:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y \
-          git make bc bison flex libssl-dev libelf-dev \
+        sudo apt install -y git make bc bison flex libssl-dev libelf-dev \
           build-essential lzop cpio device-tree-compiler python3 \
-          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-          clang-14 lld-14 llvm-14
+          gcc-aarch64-linux-gnu clang-14 lld-14 llvm-14
 
-    - name: Clone Helios kernel (vayu, branch helios)
+    - name: Checkout your kernel source
       run: |
-        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b helios --depth=1 kernel
+        git clone https://github.com/RUOK488/kernel_xiaomi_vayu-16 -b sixteen --depth=1 kernel
         cd kernel
-        test -f arch/arm64/configs/vayu_defconfig || (echo "vayu_defconfig missing" && exit 1)
+        test -f arch/arm64/configs/vayu_defconfig && echo "✓ vayu_defconfig found" || (echo "✗ Not found" && exit 1)
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -52,32 +48,23 @@ jobs:
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
-          OBJCOPY=llvm-objcopy-14 \
-          OBJDUMP=llvm-objdump-14
+          OBJCOPY=llvm-objcopy-14
 
-    - name: Verify and copy kernel image
+    - name: Locate kernel image
       run: |
         cd kernel
-        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-          cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
-        elif [ -f arch/arm64/boot/Image ]; then
-          cp arch/arm64/boot/Image ../Image.gz-dtb
-        else
-          echo "ERROR: No kernel image found"
-          find arch/arm64/boot -type f -name "Image*"
-          exit 1
-        fi
+        cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
 
     - name: Package with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
         cp Image.gz-dtb AnyKernel3/
         cd AnyKernel3
-        zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
+        zip -r9 "SukiSU_Stock_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Kernel_vayu
+        name: SukiSU_Stock_vayu
         path: AnyKernel3/*.zip
         retention-days: 7
