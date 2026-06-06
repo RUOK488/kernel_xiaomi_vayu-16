@@ -22,10 +22,14 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone kernel source
+    - name: Clone kernel source (Jebaitedneko - has vayu_defconfig)
       run: |
-        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
+        git clone https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu -b caf --depth=1 kernel
         cd kernel
+        if [ ! -f arch/arm64/configs/vayu_defconfig ]; then
+          echo "ERROR: vayu_defconfig not found"
+          exit 1
+        fi
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -36,9 +40,11 @@ jobs:
     - name: Configure kernel
       run: |
         cd kernel
-        make REPLACE_WITH_REAL_DEFCONFIG
+        make vayu_defconfig
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --disable CONFIG_DEBUG_INFO
+        scripts/config --disable CONFIG_HID_TRACE
+        scripts/config --disable CONFIG_HID_DEBUG
 
     - name: Build kernel
       run: |
@@ -50,13 +56,24 @@ jobs:
           NM=llvm-nm-14 \
           OBJCOPY=llvm-objcopy-14
 
-    - name: Package kernel
+    - name: Locate kernel image
+      id: image
       run: |
         cd kernel
-        cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb || cp arch/arm64/boot/Image ../Image.gz-dtb
-        cd ..
+        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+          echo "PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
+        elif [ -f arch/arm64/boot/Image ]; then
+          echo "PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+        else
+          echo "No kernel image found"
+          find arch/arm64/boot -name "Image*" || ls arch/arm64/boot/
+          exit 1
+        fi
+
+    - name: Package with AnyKernel3
+      run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp Image.gz-dtb AnyKernel3/
+        cp kernel/${{ steps.image.outputs.PATH }} AnyKernel3/Image.gz-dtb
         cd AnyKernel3
         zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
 
@@ -65,3 +82,4 @@ jobs:
       with:
         name: SukiSU_Kernel_vayu
         path: AnyKernel3/*.zip
+        retention-days: 7
