@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 120
 
     steps:
-    - name: Install build dependencies
+    - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y \
@@ -23,26 +23,11 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone kernel source (lybdroid - confirmed working)
+    - name: Clone tejas101k kernel (confirmed working)
       run: |
-        git clone https://github.com/lybdroid/kernel_xiaomi_vayu -b twelve --depth=1 kernel
+        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
         cd kernel
-        echo "Checking for defconfig..."
-        ls arch/arm64/configs/ | grep -i vayu || echo "No vayu defconfig found"
-
-    - name: If no vayu_defconfig, find alternative
-      id: find_config
-      run: |
-        cd kernel
-        CONFIG_FILE=$(find arch/arm64/configs -name "*vayu*" -type f | head -1)
-        if [ -n "$CONFIG_FILE" ]; then
-          CONFIG_NAME=$(basename "$CONFIG_FILE" .config)
-          echo "CONFIG_NAME=$CONFIG_NAME" >> $GITHUB_OUTPUT
-          echo "Found config: $CONFIG_NAME"
-        else
-          echo "CONFIG_NAME=defconfig" >> $GITHUB_OUTPUT
-          echo "No vayu config found, using defconfig"
-        fi
+        ls arch/arm64/configs/vayu_defconfig && echo "✓ vayu_defconfig found" || echo "✗ vayu_defconfig missing"
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -53,7 +38,7 @@ jobs:
     - name: Configure kernel
       run: |
         cd kernel
-        make ${{ steps.find_config.outputs.CONFIG_NAME }}
+        make vayu_defconfig
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --enable CONFIG_KPM
         scripts/config --disable CONFIG_HID_TRACE
@@ -74,17 +59,15 @@ jobs:
       id: find_image
       run: |
         cd kernel
-        echo "Searching for kernel image..."
-        find arch/arm64/boot -type f -name "Image*" 2>/dev/null | cat
-        
         if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-        elif [ -f "arch/arm64/boot/Image.gz" ]; then
-          echo "IMAGE_PATH=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
+          echo "✓ Image.gz-dtb found"
         elif [ -f "arch/arm64/boot/Image" ]; then
           echo "IMAGE_PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+          echo "✓ Image found"
         else
-          echo "No kernel image found"
+          echo "✗ No kernel image found"
+          find arch/arm64/boot -type f 2>/dev/null
           exit 1
         fi
 
@@ -97,9 +80,9 @@ jobs:
         zip -r9 "$ZIP_NAME" . -x ".git*" "*.zip"
         echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
-    - name: Upload artifact
+    - name: Upload kernel
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Kernel_vayu
+        name: SukiSU_Kernel_POCO_X3_Pro
         path: AnyKernel3/*.zip
         retention-days: 7
