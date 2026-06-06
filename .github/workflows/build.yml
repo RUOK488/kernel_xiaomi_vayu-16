@@ -22,11 +22,10 @@ jobs:
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
           clang-14 lld-14 llvm-14
 
-    - name: Clone tejas101k kernel (confirmed vayu_defconfig)
+    - name: Clone kernel source
       run: |
         git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
         cd kernel
-        test -f arch/arm64/configs/vayu_defconfig || (echo "vayu_defconfig missing" && exit 1)
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -37,11 +36,10 @@ jobs:
     - name: Configure kernel
       run: |
         cd kernel
-        make vayu_defconfig
+        # USE THE EXACT DEFCONFIG NAME YOU FOUND FROM DEBUG
+        make CORRECT_DEFCONFIG
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --disable CONFIG_DEBUG_INFO
-        scripts/config --disable CONFIG_HID_TRACE
-        scripts/config --disable CONFIG_HID_DEBUG
 
     - name: Build kernel
       run: |
@@ -53,18 +51,11 @@ jobs:
           NM=llvm-nm-14 \
           OBJCOPY=llvm-objcopy-14
 
-    - name: Locate and copy kernel image
+    - name: Package kernel
       run: |
         cd kernel
-        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-          cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
-        else
-          echo "ERROR: No kernel image found"
-          exit 1
-        fi
-
-    - name: Package with AnyKernel3
-      run: |
+        cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb || cp arch/arm64/boot/Image ../Image.gz-dtb
+        cd ..
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
         cp Image.gz-dtb AnyKernel3/
         cd AnyKernel3
@@ -75,4 +66,3 @@ jobs:
       with:
         name: SukiSU_Kernel_vayu
         path: AnyKernel3/*.zip
-        retention-days: 7
