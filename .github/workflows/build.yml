@@ -1,4 +1,4 @@
-name: Build LineageOS Kernel with SukiSU Ultra
+name: Build Stock Kernel + SukiSU Ultra (POCO X3 Pro)
 
 on:
   workflow_dispatch:
@@ -11,19 +11,23 @@ env:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
     steps:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y git make bc bison flex libssl-dev libelf-dev \
+        sudo apt install -y \
+          git make bc bison flex libssl-dev libelf-dev \
           build-essential lzop cpio device-tree-compiler python3 \
-          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi clang-14 lld-14
+          gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
+          clang-14 lld-14 llvm-14
 
-    - name: Clone LineageOS kernel for vayu
+    - name: Clone kernel source (LineageOS – stock-based, verified vayu_defconfig)
       run: |
         git clone https://github.com/LineageOS/android_kernel_xiaomi_vayu -b lineage-21 --depth=1 kernel
         cd kernel
-        ls arch/arm64/configs/vayu* || find arch/arm64/configs -name "*vayu*"
+        test -f arch/arm64/configs/vayu_defconfig && echo "✓ vayu_defconfig found" || (echo "✗ Missing vayu_defconfig" && exit 1)
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -31,22 +35,39 @@ jobs:
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
         rm -rf KernelSU/.git
 
-    - name: Configure and build
+    - name: Configure kernel
       run: |
         cd kernel
         make vayu_defconfig
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
-        make -j$(nproc) CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14
+        scripts/config --disable CONFIG_DEBUG_INFO
 
-    - name: Package kernel
+    - name: Build kernel
+      run: |
+        cd kernel
+        make -j$(nproc) \
+          CC=clang-14 \
+          LD=ld.lld-14 \
+          AR=llvm-ar-14 \
+          NM=llvm-nm-14 \
+          OBJCOPY=llvm-objcopy-14 \
+          OBJDUMP=llvm-objdump-14
+
+    - name: Verify kernel image
+      run: |
+        cd kernel
+        test -f arch/arm64/boot/Image.gz-dtb || (echo "No Image.gz-dtb" && exit 1)
+
+    - name: Package with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
         cp kernel/arch/arm64/boot/Image.gz-dtb AnyKernel3/
         cd AnyKernel3
-        zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
+        zip -r9 "SukiSU_Stock_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
 
-    - name: Upload
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SukiSU_Kernel_vayu
+        name: SukiSU_Stock_vayu
         path: AnyKernel3/*.zip
+        retention-days: 7
