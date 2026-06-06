@@ -1,64 +1,49 @@
-name: Build POCO X3 Pro Kernel with SukiSU Ultra
+name: Build SukiSU Kernel for POCO X3 Pro (Final)
 
 on:
   workflow_dispatch:
-    inputs:
-      kernel-source:
-        description: 'Kernel source repository'
-        required: true
-        default: 'https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu'
-      kernel-branch:
-        description: 'Git branch to build'
-        required: true
-        default: 'base'
-      defconfig:
-        description: 'Kernel defconfig name'
-        required: true
-        default: 'vayu_defconfig'
 
 env:
   ARCH: arm64
-  SUBARCH: arm64
   CROSS_COMPILE: aarch64-linux-gnu-
-  CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+  CROSS_COMPILE_COMPAT: arm-linux-gnueabi-
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    container: debian:bookworm
     timeout-minutes: 120
 
     steps:
     - name: Install dependencies
       run: |
-        apt update
-        apt install -y git make bc bison flex libssl-dev libelf-dev \
+        sudo apt update
+        sudo apt install -y \
+          git make bc bison flex libssl-dev libelf-dev \
           build-essential lzop cpio device-tree-compiler python3 \
           gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-          clang-14 lld-14 llvm-14 wget xz-utils
-    - name: Clone kernel source
+          clang-14 lld-14 llvm-14
+
+    - name: Clone Helios kernel (vayu, branch helios)
       run: |
-        git clone --depth 1 ${{ github.event.inputs.kernel-source }} -b ${{ github.event.inputs.kernel-branch }} kernel
+        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b helios --depth=1 kernel
         cd kernel
-        if [ ! -f "arch/arm64/configs/${{ github.event.inputs.defconfig }}" ]; then
-          echo "Error: defconfig not found!"
-          find arch/arm64/configs -name "*.config"
-          exit 1
-        fi
+        test -f arch/arm64/configs/vayu_defconfig || (echo "vayu_defconfig missing" && exit 1)
+
     - name: Integrate SukiSU Ultra
       run: |
         cd kernel
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
         rm -rf KernelSU/.git
+
     - name: Configure kernel
       run: |
         cd kernel
-        make ${{ github.event.inputs.defconfig }}
+        make vayu_defconfig
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
+        scripts/config --disable CONFIG_DEBUG_INFO
         scripts/config --disable CONFIG_HID_TRACE
         scripts/config --disable CONFIG_HID_DEBUG
-        scripts/config --disable CONFIG_DEBUG_INFO
-        scripts/config --disable CONFIG_DEBUG_KERNEL
+
     - name: Build kernel
       run: |
         cd kernel
@@ -67,27 +52,32 @@ jobs:
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
-          OBJCOPY=llvm-objcopy-14
-    - name: Locate kernel image
-      id: find
+          OBJCOPY=llvm-objcopy-14 \
+          OBJDUMP=llvm-objdump-14
+
+    - name: Verify and copy kernel image
       run: |
         cd kernel
-        if [ -f "arch/arm64/boot/Image.gz-dtb" ]; then
-          echo "IMAGE_PATH=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-        elif [ -f "arch/arm64/boot/Image" ]; then
-          echo "IMAGE_PATH=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+          cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
+        elif [ -f arch/arm64/boot/Image ]; then
+          cp arch/arm64/boot/Image ../Image.gz-dtb
         else
-          find arch/arm64/boot -name "Image*"
+          echo "ERROR: No kernel image found"
+          find arch/arm64/boot -type f -name "Image*"
           exit 1
         fi
-    - name: Package kernel
+
+    - name: Package with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/${{ steps.find.outputs.IMAGE_PATH }} AnyKernel3/Image.gz-dtb
+        cp Image.gz-dtb AnyKernel3/
         cd AnyKernel3
         zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
+
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: SukiSU_Kernel_vayu
         path: AnyKernel3/*.zip
+        retention-days: 7
