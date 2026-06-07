@@ -1,4 +1,4 @@
-name: Build SukiSU Kernel for POCO X3 Pro (tejas101k)
+name: Build SukiSU Kernel for POCO X3 Pro (Jebaitedneko)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
-    - name: Install dependencies
+    - name: Install dependencies (including python2 for dtb)
       run: |
         sudo apt update
         sudo apt install -y \
@@ -23,11 +23,14 @@ jobs:
           clang-14 lld-14 llvm-14 python2 lz4
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: Clone kernel source (tejas101k/sixteen)
+    - name: Clone Jebaitedneko kernel (has vayu_defconfig)
       run: |
-        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
+        git clone https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu -b caf --depth=1 kernel
         cd kernel
-        test -f arch/arm64/configs/vayu_defconfig
+        if [ ! -f arch/arm64/configs/vayu_defconfig ]; then
+          echo "ERROR: vayu_defconfig not found"
+          exit 1
+        fi
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -44,30 +47,38 @@ jobs:
         scripts/config --disable CONFIG_HID_TRACE
         scripts/config --disable CONFIG_HID_DEBUG
 
-    - name: Build kernel (with fallback for dtbo)
+    - name: Build kernel
       run: |
         cd kernel
-        # Build the kernel image, ignoring dtbo.img failure
         make -j$(nproc) \
           CC=clang-14 \
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
           OBJCOPY=llvm-objcopy-14 \
-          V=1 || true
-        # Force build of Image.gz-dtb
-        make Image.gz-dtb
-        # If that fails, try to find any image
-        if [ ! -f arch/arm64/boot/Image.gz-dtb ]; then
-          echo "Image.gz-dtb not found, searching..."
-          find arch/arm64/boot -name "Image*"
+          OBJDUMP=llvm-objdump-14
+
+    - name: Locate kernel image (any format)
+      id: find
+      run: |
+        cd kernel
+        echo "Contents of arch/arm64/boot:"
+        ls -la arch/arm64/boot/ || true
+        # Search for any kernel image
+        IMG=$(find arch/arm64/boot -type f \( -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" -o -name "zImage" -o -name "Image.lz4" \) | head -1)
+        if [ -n "$IMG" ]; then
+          cp "$IMG" ../Image.gz-dtb
+          echo "Copied $IMG to Image.gz-dtb"
+        else
+          echo "ERROR: No kernel image found"
+          find arch/arm64/boot -type f
           exit 1
         fi
 
-    - name: Package kernel
+    - name: Package with AnyKernel3
       run: |
         git clone https://github.com/osm0sis/AnyKernel3 -b master AnyKernel3
-        cp kernel/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        cp Image.gz-dtb AnyKernel3/
         cd AnyKernel3
         zip -r9 "SukiSU_vayu_$(date +%Y%m%d_%H%M%S).zip" . -x ".git*"
 
