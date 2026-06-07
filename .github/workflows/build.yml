@@ -1,4 +1,4 @@
-name: Build SukiSU Kernel (Jebaitedneko - Kernel Only)
+name: Build SukiSU Kernel (tejas101k - Automatic)
 
 on:
   workflow_dispatch:
@@ -23,9 +23,9 @@ jobs:
           clang-14 lld-14 llvm-14 python2 lz4
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: Clone Jebaitedneko kernel (caf branch)
+    - name: Clone tejas101k/sixteen kernel
       run: |
-        git clone https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu -b caf --depth=1 kernel
+        git clone https://github.com/tejas101k/kernel_xiaomi_vayu -b sixteen --depth=1 kernel
         cd kernel
         test -f arch/arm64/configs/vayu_defconfig || (echo "vayu_defconfig missing" && exit 1)
 
@@ -35,37 +35,45 @@ jobs:
         curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
         rm -rf KernelSU/.git
 
-    - name: Configure kernel
+    - name: Configure kernel (with silent defaults)
       run: |
         cd kernel
         make vayu_defconfig
+        # Disable problematic GPU drivers that cause build errors
+        scripts/config --disable CONFIG_DRM_MSM
+        scripts/config --disable CONFIG_DRM
+        # Enable required SukiSU features
         scripts/config --enable CONFIG_KSU_MANUAL_HOOK
         scripts/config --disable CONFIG_DEBUG_INFO
         scripts/config --disable CONFIG_HID_TRACE
         scripts/config --disable CONFIG_HID_DEBUG
-        # Disable problematic GPU drivers to avoid build errors
-        scripts/config --disable CONFIG_DRM_MSM
+        # Accept all remaining defaults automatically
+        make olddefconfig
 
-    - name: Build kernel image only
+    - name: Build kernel (full build)
       run: |
         cd kernel
-        # Build only the kernel image, skipping modules and some drivers
         make -j$(nproc) \
           CC=clang-14 \
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
-          OBJCOPY=llvm-objcopy-14 \
-          Image.gz-dtb
+          OBJCOPY=llvm-objcopy-14
 
-    - name: Verify kernel image
+    - name: Locate kernel image
+      id: find
       run: |
         cd kernel
+        # Find any kernel image
         if [ -f arch/arm64/boot/Image.gz-dtb ]; then
           cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
+        elif [ -f arch/arm64/boot/Image.gz ]; then
+          cp arch/arm64/boot/Image.gz ../Image.gz-dtb
+        elif [ -f arch/arm64/boot/Image ]; then
+          cp arch/arm64/boot/Image ../Image.gz-dtb
         else
-          echo "Image.gz-dtb not found. Listing boot directory:"
-          ls -la arch/arm64/boot/
+          echo "No kernel image found. Directory contents:"
+          ls -la arch/arm64/boot/ || true
           exit 1
         fi
 
