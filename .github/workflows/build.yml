@@ -1,4 +1,4 @@
-name: Build SukiSU Kernel for POCO X3 Pro (Jebaitedneko)
+name: Build SukiSU Kernel (Jebaitedneko - Kernel Only)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 120
     steps:
-    - name: Install dependencies (including python2 for dtb)
+    - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y \
@@ -23,14 +23,11 @@ jobs:
           clang-14 lld-14 llvm-14 python2 lz4
         sudo ln -sf /usr/bin/python2 /usr/bin/python
 
-    - name: Clone Jebaitedneko kernel (has vayu_defconfig)
+    - name: Clone Jebaitedneko kernel (caf branch)
       run: |
         git clone https://github.com/Jebaitedneko/android_kernel_xiaomi_vayu -b caf --depth=1 kernel
         cd kernel
-        if [ ! -f arch/arm64/configs/vayu_defconfig ]; then
-          echo "ERROR: vayu_defconfig not found"
-          exit 1
-        fi
+        test -f arch/arm64/configs/vayu_defconfig || (echo "vayu_defconfig missing" && exit 1)
 
     - name: Integrate SukiSU Ultra
       run: |
@@ -46,32 +43,29 @@ jobs:
         scripts/config --disable CONFIG_DEBUG_INFO
         scripts/config --disable CONFIG_HID_TRACE
         scripts/config --disable CONFIG_HID_DEBUG
+        # Disable problematic GPU drivers to avoid build errors
+        scripts/config --disable CONFIG_DRM_MSM
 
-    - name: Build kernel
+    - name: Build kernel image only
       run: |
         cd kernel
+        # Build only the kernel image, skipping modules and some drivers
         make -j$(nproc) \
           CC=clang-14 \
           LD=ld.lld-14 \
           AR=llvm-ar-14 \
           NM=llvm-nm-14 \
           OBJCOPY=llvm-objcopy-14 \
-          OBJDUMP=llvm-objdump-14
+          Image.gz-dtb
 
-    - name: Locate kernel image (any format)
-      id: find
+    - name: Verify kernel image
       run: |
         cd kernel
-        echo "Contents of arch/arm64/boot:"
-        ls -la arch/arm64/boot/ || true
-        # Search for any kernel image
-        IMG=$(find arch/arm64/boot -type f \( -name "Image.gz-dtb" -o -name "Image.gz" -o -name "Image" -o -name "zImage" -o -name "Image.lz4" \) | head -1)
-        if [ -n "$IMG" ]; then
-          cp "$IMG" ../Image.gz-dtb
-          echo "Copied $IMG to Image.gz-dtb"
+        if [ -f arch/arm64/boot/Image.gz-dtb ]; then
+          cp arch/arm64/boot/Image.gz-dtb ../Image.gz-dtb
         else
-          echo "ERROR: No kernel image found"
-          find arch/arm64/boot -type f
+          echo "Image.gz-dtb not found. Listing boot directory:"
+          ls -la arch/arm64/boot/
           exit 1
         fi
 
